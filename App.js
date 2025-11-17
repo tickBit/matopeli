@@ -67,22 +67,30 @@ const App = () => {
     // move the worm head to the touch position (center the 40x40 image)
     const newHead = { x: Math.round(pageX) - 20, y: Math.round(pageY) - 20 };
     
-    // update worm body: each segment follows the one in front of it, 40px away
+    // update worm body: each segment is updated so, that current x, y are added by dx, dy,
+    // where dx, dy are the difference between the previous segment and the current segment,
+    // but limited to a maximum distance of 40 pixels (the size of each segment)
     setWormBody(prevBody => {
-      const newBody = [newHead];
-      for (let i = 0; i < prevBody.length - 1; i++) {
-        const current = newBody[i];
-        const dx = prevBody[i].x - current.x;
-        const dy = prevBody[i].y - current.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // normalize direction and set distance to 40px
-        const nextSegment = {
-          x: current.x + (dx / distance) * 40,
-          y: current.y + (dy / distance) * 40,
-        };
-        newBody.push(nextSegment);
-      }
+      const newBody = prevBody.map((segment, index) => {
+        if (index === 0) {
+          // head segment
+          return newHead;
+        } else {
+          const prevSegment = index === 1 ? newHead : prevBody[index - 1];
+          const dx = prevSegment.x - segment.x;
+          const dy = prevSegment.y - segment.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          if (distance > 40) {
+            const angle = Math.atan2(dy, dx);
+            return {
+              x: Math.round(prevSegment.x - 40 * Math.cos(angle)),
+              y: Math.round(prevSegment.y - 40 * Math.sin(angle)),
+            };
+          } else {
+            return { ...segment };
+          }
+        }
+      });
       return newBody;
     });
   };
