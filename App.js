@@ -12,15 +12,20 @@ const windowHeight = Dimensions.get('window').height;
 // define worms body as pixel coordinates coordinates beginning from head to tail
 const initialWormBody = [
   {x: 200, y: 200},
-  {x: 160, y: 200},
-  {x: 120, y: 200},
-  {x: 80, y: 200},
-  {x: 40, y: 200},
+  {x: 150, y: 200},
+  {x: 100, y: 200},
+  {x: 50, y: 200},
+  {x: 0, y: 200},
 ];
+
+const SEGMENT_SIZE = 60; // size of each segment in px
+const SAFETY_BUFFER = 30; // allow this many px as "safe" distance
+// collision only when centers are closer than COLLISION_THRESHOLD
+const COLLISION_THRESHOLD = Math.max(0, SEGMENT_SIZE - SAFETY_BUFFER);
 
 const App = () => {
   
-  let prevCoordsOfEachSegment = initialWormBody.map(segment => ({...segment}));
+  //let prevCoordsOfEachSegment = initialWormBody.map(segment => ({...segment}));
   
   const [isGameStarted, setIsGameStarted] = useState(false);  
   const [touchPos, setTouchPos] = useState(null);
@@ -44,8 +49,8 @@ const App = () => {
         if (!head) return false;
         const pageX = e.nativeEvent.pageX;
         const pageY = e.nativeEvent.pageY;
-        // head is 40x40, head.x/head.y are top-left
-        return pageX >= head.x && pageX <= head.x + 40 && pageY >= head.y && pageY <= head.y + 40;
+        // head is SEGMENT_SIZE x SEGMENT_SIZE, head.x/head.y are top-left
+        return pageX >= head.x && pageX <= head.x + SEGMENT_SIZE && pageY >= head.y && pageY <= head.y + SEGMENT_SIZE;
       },
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (e, gesture) => { handleTouch(e, gesture); },
@@ -64,33 +69,44 @@ const App = () => {
 
     setTouchPos({ locationX, locationY, pageX, pageY });
     
-    // move the worm head to the touch position (center the 40x40 image)
-    const newHead = { x: Math.round(pageX) - 20, y: Math.round(pageY) - 20 };
+    // move the worm head to the touch position (center the SEGMENT_SIZE image)
+    const newHead = { x: Math.round(pageX) - SEGMENT_SIZE/2, y: Math.round(pageY) - SEGMENT_SIZE/2 };
     
-    // update worm body: each segment is updated so, that current x, y are added by dx, dy,
-    // where dx, dy are the difference between the previous segment and the current segment,
-    // but limited to a maximum distance of 40 pixels (the size of each segment)
+    // build new body where each segment tries to remain SEGMENT_SIZE away from the one in front
     setWormBody(prevBody => {
-      const newBody = prevBody.map((segment, index) => {
-        if (index === 0) {
-          // head segment
-          return newHead;
+      const newBody = [ newHead ];
+      for (let i = 1; i < prevBody.length; i++) {
+        const target = newBody[i - 1]; // the segment this one should follow
+        const curr = prevBody[i];
+        const dx = target.x - curr.x;
+        const dy = target.y - curr.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > SEGMENT_SIZE) {
+          const angle = Math.atan2(dy, dx);
+          newBody.push({
+            x: Math.round(target.x - Math.cos(angle) * SEGMENT_SIZE),
+            y: Math.round(target.y - Math.sin(angle) * SEGMENT_SIZE),
+          });
         } else {
-          const prevSegment = index === 1 ? newHead : prevBody[index - 1];
-          const dx = prevSegment.x - segment.x;
-          const dy = prevSegment.y - segment.y;
-          const distance = Math.sqrt(dx * dx + dy * dy);
-          if (distance > 40) {
-            const angle = Math.atan2(dy, dx);
-            return {
-              x: Math.round(prevSegment.x - 40 * Math.cos(angle)),
-              y: Math.round(prevSegment.y - 40 * Math.sin(angle)),
-            };
-          } else {
-            return { ...segment };
-          }
+          // too close -> keep current position (prevents snapping over the leader)
+          newBody.push({ ...curr });
         }
-      });
+      }
+
+      // collision check: compare centers; allow SAFETY_BUFFER px (only collide when closer than threshold)
+      const headCenter = { x: newBody[0].x + SEGMENT_SIZE/2, y: newBody[0].y + SEGMENT_SIZE/2 };
+      for (let i = 1; i < newBody.length; i++) {
+        const segCenter = { x: newBody[i].x + SEGMENT_SIZE/2, y: newBody[i].y + SEGMENT_SIZE/2 };
+        const ddx = headCenter.x - segCenter.x;
+        const ddy = headCenter.y - segCenter.y;
+        const centerDist = Math.sqrt(ddx*ddx + ddy*ddy);
+        if (centerDist < COLLISION_THRESHOLD) {
+          // collision detected (beyond the allowed safety buffer) -> end game
+          setIsGameStarted(false);
+          break;
+        }
+      }
+
       return newBody;
     });
   };
@@ -122,13 +138,13 @@ const App = () => {
                 <Image
                   key={index}
                   style={{
-                    width: 40,
-                    height: 40,
+                    width: SEGMENT_SIZE,
+                    height: SEGMENT_SIZE,
                     position: 'absolute',
                     left: segment.x,
                     top: segment.y,
                   }}
-                  source={ require('./assets/worm.jpg') }
+                  source={ require('./assets/yellowhead.jpg') }
                   
                 />
                 ) : (
@@ -136,8 +152,8 @@ const App = () => {
                 <Image
                  key={index}
                   style={{
-                    width: 40,
-                    height: 40,
+                    width: SEGMENT_SIZE,
+                    height: SEGMENT_SIZE,
                     position: 'absolute',
                     left: segment.x,
                     top: segment.y,
