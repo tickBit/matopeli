@@ -1,13 +1,9 @@
 import React from "react";
 import { View, Text, StyleSheet, Image, ScrollView, Dimensions, TouchableHighlight, PanResponder } from "react-native";
 import * as ScreenOrientation from "expo-screen-orientation";
+import { useWindowDimensions } from "react-native";
 // import {SafeAreaView, SafeAreaProvider} from 'react-native-safe-area-context';
 import { useEffect, useState, useRef } from "react";
-
-ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT);
-
-const windowWidth = Dimensions.get('window').width;
-const windowHeight = Dimensions.get('window').height;
 
 // define worms body as pixel coordinates coordinates beginning from head to tail
 const initialWormBody = [
@@ -25,6 +21,24 @@ const COLLISION_THRESHOLD = Math.max(0, SEGMENT_SIZE - SAFETY_BUFFER);
 
 const App = () => {
   
+  const { width, height } = useWindowDimensions();
+  const [orientationReady, setOrientationReady] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        // wait for orientation lock to complete before using dimensions
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT);
+      } catch (err) {
+        // ignore or log
+        console.warn('lockAsync failed', err);
+      }
+      if (mounted) setOrientationReady(true);
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const [isGameStarted, setIsGameStarted] = useState(false);  
   const [touchPos, setTouchPos] = useState(null);
   const [wormBody, setWormBody] = useState(initialWormBody);
@@ -41,8 +55,8 @@ const App = () => {
   const drawFoodCoords = (currentFoodPos) => {
     let collides = true;
     while (collides) {
-      const rx = Math.floor(Math.random() * (windowWidth - SEGMENT_SIZE * 2));
-      const ry = Math.floor(Math.random() * (windowHeight - SEGMENT_SIZE * 2));
+      const rx = Math.floor(Math.random() * (width - SEGMENT_SIZE * 2));
+      const ry = Math.floor(Math.random() * (height - SEGMENT_SIZE * 2));
       
       // check, that food is far enough from its previous position
       const ddx = (currentFoodPos.x + SEGMENT_SIZE/2) - (rx + SEGMENT_SIZE/2);
@@ -58,11 +72,11 @@ const App = () => {
   }
   
   const startGame = () => {
-    setWormBody(initialWormBody);
-    setFoodPos({x: 700, y: 200});
-    setIsGameStarted(true);
-    hasCollectedRef.current = false;
-  };
+     setWormBody(initialWormBody);
+     setFoodPos({x: 700, y: 200});
+     setIsGameStarted(true);
+     hasCollectedRef.current = false;
+   };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -150,16 +164,35 @@ const App = () => {
     });
   };
   
+  if (!orientationReady) {
+    // wait until orientation is set and useWindowDimensions reflects it
+    return <View style={[styles.container, { backgroundColor: '#000' }]} />;
+  }
+  
   return (
-     <View style={styles.container} {...(isGameStarted ? panResponder.panHandlers : {})} >
-        <View>
-            <Image style={styles.background} source={require("./assets/landscape.jpg")} />
-        </View>
+        <View style={styles.container} {...(isGameStarted ? panResponder.panHandlers : {})} >
+        {/* full-screen background that covers entire area */}
+        <Image
+          style={styles.background}
+          source={require("./assets/landscape.jpg")}
+          resizeMode="cover"
+        />
         {!isGameStarted ? (
         <View style={{ flex:1 }}>
           <TouchableHighlight onPress={() => startGame()}>
             <View>
-            <Image style={styles.startImg} source={require("./assets/worm.jpg")} />
+              <Image
+                style={{
+                  width: 150,
+                  height: 150,
+                  borderRadius: 75,
+                  marginTop: height / 2 - 75,
+                  marginLeft: width / 2 - 75,
+                  borderWidth: 3,
+                  borderColor: "blue"
+                }}
+                source={require("./assets/worm.jpg")}
+              />
             </View>
           </TouchableHighlight>
         </View>
@@ -249,12 +282,10 @@ const styles = StyleSheet.create({
         fontSize: 23,
         textAlign: "center",
     },
-    startImg: {
+        startImg: {
         width: 150,
         height: 150,
-        borderRadius: 150 / 2,
-        marginTop: windowHeight / 2 - 150 / 2,
-        marginLeft: windowWidth / 2 - 150 / 2,
+        borderRadius: 75,
         borderWidth: 3,
         borderColor: "blue",
     },
