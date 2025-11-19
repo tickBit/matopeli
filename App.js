@@ -53,22 +53,35 @@ const App = () => {
   useEffect(() => { foodPosRef.current = foodPos; }, [foodPos]);
   
   const drawFoodCoords = (currentFoodPos) => {
-    let collides = true;
-    while (collides) {
-      const rx = Math.floor(Math.random() * (width - SEGMENT_SIZE * 2));
-      const ry = Math.floor(Math.random() * (height - SEGMENT_SIZE * 2));
-      
-      // check, that food is far enough from its previous position
+    // ensure we always produce coordinates inside the visible area
+    // add a small margin so the whole food image stays on screen
+    const margin = SEGMENT_SIZE; // adjust if you want more/less margin
+    const maxX = Math.max(0, Math.floor(width) - margin - SEGMENT_SIZE);
+    const maxY = Math.max(0, Math.floor(height) - margin - SEGMENT_SIZE);
+
+    // fallback if the screen is too small: clamp later
+    let attempts = 0;
+    while (attempts < 100) {
+      const rx = margin + Math.floor(Math.random() * (maxX + 1 || 1));
+      const ry = margin + Math.floor(Math.random() * (maxY + 1 || 1));
+
+      // check that food is far enough from its previous position
       const ddx = (currentFoodPos.x + SEGMENT_SIZE/2) - (rx + SEGMENT_SIZE/2);
       const ddy = (currentFoodPos.y + SEGMENT_SIZE/2) - (ry + SEGMENT_SIZE/2);
       const dist = Math.sqrt(ddx*ddx + ddy*ddy);
-      if (dist < COLLISION_THRESHOLD * 2) {
-        collides = true;
-      } else {
-        collides = false;
-        return { x: rx, y: ry };
+      if (dist >= COLLISION_THRESHOLD * 2) {
+        return {
+          x: Math.min(Math.max(rx, 0), Math.max(0, Math.floor(width) - SEGMENT_SIZE)),
+          y: Math.min(Math.max(ry, 0), Math.max(0, Math.floor(height) - SEGMENT_SIZE)),
+        };
       }
+      attempts++;
     }
+
+    // last-resort: return a clamped position so food is never off-screen
+    const fallBackX = Math.min(Math.max(margin, 0), Math.max(0, Math.floor(width) - SEGMENT_SIZE));
+    const fallBackY = Math.min(Math.max(margin, 0), Math.max(0, Math.floor(height) - SEGMENT_SIZE));
+    return { x: fallBackX, y: fallBackY };
   }
   
   const startGame = () => {
