@@ -25,43 +25,63 @@ const COLLISION_THRESHOLD = Math.max(0, SEGMENT_SIZE - SAFETY_BUFFER);
 
 const App = () => {
   
-  //let prevCoordsOfEachSegment = initialWormBody.map(segment => ({...segment}));
-  
   const [isGameStarted, setIsGameStarted] = useState(false);  
   const [touchPos, setTouchPos] = useState(null);
   const [wormBody, setWormBody] = useState(initialWormBody);
+  const [foodPos, setFoodPos] = useState({ x: 700, y: 200 });
   
   // keep a ref to the latest wormBody so panResponder callbacks can read current head pos
   const wormBodyRef = useRef(wormBody);
+  const foodPosRef = useRef(foodPos);
+  const hasCollectedRef = useRef(false); // track if food was just collected this frame
+  
   useEffect(() => { wormBodyRef.current = wormBody; }, [wormBody]);
+  useEffect(() => { foodPosRef.current = foodPos; }, [foodPos]);
+  
+  const drawFoodCoords = (currentFoodPos) => {
+    let collides = true;
+    while (collides) {
+      const rx = Math.floor(Math.random() * (windowWidth - SEGMENT_SIZE * 2));
+      const ry = Math.floor(Math.random() * (windowHeight - SEGMENT_SIZE * 2));
+      
+      // check, that food is far enough from its previous position
+      const ddx = (currentFoodPos.x + SEGMENT_SIZE/2) - (rx + SEGMENT_SIZE/2);
+      const ddy = (currentFoodPos.y + SEGMENT_SIZE/2) - (ry + SEGMENT_SIZE/2);
+      const dist = Math.sqrt(ddx*ddx + ddy*ddy);
+      if (dist < COLLISION_THRESHOLD * 2) {
+        collides = true;
+      } else {
+        collides = false;
+        return { x: rx, y: ry };
+      }
+    }
+  }
   
   const startGame = () => {
     setWormBody(initialWormBody);
+    setFoodPos({x: 700, y: 200});
     setIsGameStarted(true);
+    hasCollectedRef.current = false;
   };
 
   const panResponder = useRef(
     PanResponder.create({
-      // only become responder if the touch starts inside the head bounds
       onStartShouldSetPanResponder: (e) => {
         if (!isGameStarted) return false;
         const head = wormBodyRef.current[0];
         if (!head) return false;
         const pageX = e.nativeEvent.pageX;
         const pageY = e.nativeEvent.pageY;
-        // head is SEGMENT_SIZE x SEGMENT_SIZE, head.x/head.y are top-left
         return pageX >= head.x && pageX <= head.x + SEGMENT_SIZE && pageY >= head.y && pageY <= head.y + SEGMENT_SIZE;
       },
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (e, gesture) => { handleTouch(e, gesture); },
       onPanResponderMove: (e, gesture) => { handleTouch(e, gesture); },
-      onPanResponderRelease: () => { /* optional: stop dragging */ },
+      onPanResponderRelease: () => { hasCollectedRef.current = false; },
     })
   ).current;
   
-    
   const handleTouch = (e, gestureState) => {
-    // prefer gestureState.moveX/Y when available, fallback to nativeEvent.pageX/Y
     const pageX = (gestureState && gestureState.moveX) || e.nativeEvent.pageX;
     const pageY = (gestureState && gestureState.moveY) || e.nativeEvent.pageY;
     const locationX = e.nativeEvent.locationX;
@@ -69,15 +89,35 @@ const App = () => {
 
     setTouchPos({ locationX, locationY, pageX, pageY });
     
-    // move the worm head to the touch position (center the SEGMENT_SIZE image)
     const newHead = { x: Math.round(pageX) - SEGMENT_SIZE/2, y: Math.round(pageY) - SEGMENT_SIZE/2 };
     
-    // build new body where each segment tries to remain SEGMENT_SIZE away from the one in front
+    // check food collision before updating body
+    const foodCenter = { x: foodPosRef.current.x + SEGMENT_SIZE/2, y: foodPosRef.current.y + SEGMENT_SIZE/2 };
+    const headCenter = { x: newHead.x + SEGMENT_SIZE/2, y: newHead.y + SEGMENT_SIZE/2 };
+    const ddx = headCenter.x - foodCenter.x;
+    const ddy = headCenter.y - foodCenter.y;
+    const centerDist = Math.sqrt(ddx*ddx + ddy*ddy);
+    
+    if (centerDist < COLLISION_THRESHOLD && !hasCollectedRef.current) {
+      // food collected -> generate and set new food position immediately
+      hasCollectedRef.current = true;
+      const newFoodPos = drawFoodCoords(foodPosRef.current);
+      setFoodPos(newFoodPos);
+    }
+    
     setWormBody(prevBody => {
+      let currentBody = prevBody;
+      
+      // grow worm only once per food collection
+      if (centerDist < COLLISION_THRESHOLD && hasCollectedRef.current) {
+        const newSegment = { ...prevBody[prevBody.length - 1] };
+        currentBody = [ ...prevBody, newSegment ];
+      }
+
       const newBody = [ newHead ];
-      for (let i = 1; i < prevBody.length; i++) {
-        const target = newBody[i - 1]; // the segment this one should follow
-        const curr = prevBody[i];
+      for (let i = 1; i < currentBody.length; i++) {
+        const target = newBody[i - 1];
+        const curr = currentBody[i];
         const dx = target.x - curr.x;
         const dy = target.y - curr.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -88,25 +128,24 @@ const App = () => {
             y: Math.round(target.y - Math.sin(angle) * SEGMENT_SIZE),
           });
         } else {
-          // too close -> keep current position (prevents snapping over the leader)
           newBody.push({ ...curr });
         }
       }
 
-      // collision check: compare centers; allow SAFETY_BUFFER px (only collide when closer than threshold)
-      const headCenter = { x: newBody[0].x + SEGMENT_SIZE/2, y: newBody[0].y + SEGMENT_SIZE/2 };
+      // collision check with body
+      const headCenterNew = { x: newBody[0].x + SEGMENT_SIZE/2, y: newBody[0].y + SEGMENT_SIZE/2 };
       for (let i = 1; i < newBody.length; i++) {
         const segCenter = { x: newBody[i].x + SEGMENT_SIZE/2, y: newBody[i].y + SEGMENT_SIZE/2 };
-        const ddx = headCenter.x - segCenter.x;
-        const ddy = headCenter.y - segCenter.y;
-        const centerDist = Math.sqrt(ddx*ddx + ddy*ddy);
-        if (centerDist < COLLISION_THRESHOLD) {
-          // collision detected (beyond the allowed safety buffer) -> end game
+        const distDx = headCenterNew.x - segCenter.x;
+        const distDy = headCenterNew.y - segCenter.y;
+        const collisionDist = Math.sqrt(distDx*distDx + distDy*distDy);
+        if (collisionDist < COLLISION_THRESHOLD) {
           setIsGameStarted(false);
           break;
         }
       }
 
+      hasCollectedRef.current = false; // reset food collection flag after body update
       return newBody;
     });
   };
@@ -127,8 +166,19 @@ const App = () => {
         
         ) : (
           
-          
           <View style={{ flex:1 }}>
+          
+          <Image
+            style={{
+              width: SEGMENT_SIZE,
+              height: SEGMENT_SIZE,
+              position: 'absolute',
+              left: foodPos.x,
+              top: foodPos.y,
+            }}
+            source={ require('./assets/apple.jpg') }
+          />
+          
           <TouchableHighlight>
             <View>
               {wormBody.map((segment, index) => (
@@ -161,12 +211,16 @@ const App = () => {
                   }}
                   source={ require('./assets/greenhead.jpg') }
                 />
+                
                 )
+                
               ))}
                 
             </View>
           </TouchableHighlight>
+          
           </View>
+
         )}
       </View>
     );
@@ -183,7 +237,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: 0,
-    flexDirection: 'row', height: windowWidth,
+    flexDirection: 'row',
   },
     header: {
         height: 60,
@@ -202,7 +256,7 @@ const styles = StyleSheet.create({
         marginTop: windowHeight / 2 - 150 / 2,
         marginLeft: windowWidth / 2 - 150 / 2,
         borderWidth: 3,
-        borderColor: "blue"
+        borderColor: "blue",
     },
 });
 
